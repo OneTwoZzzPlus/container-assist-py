@@ -1,165 +1,267 @@
-# 🎓 Personal Assistant — учебный проект для практики Docker
+# Personal Assistant — учебный проект для практики Docker
 
-Простое FastAPI-приложение, которое используется как основа для лабораторной работы по Docker.
+Простое FastAPI-приложение, которое используется как основа для лабораторных работ по Docker.
 
-## 📁 Структура проекта
+## Структура проекта
 
 ```
 simple_example/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py          # FastAPI + маршруты
+│   ├── main.py          # FastAPI + маршруты + Redis-кэширование
 │   ├── database.py      # Подключение к PostgreSQL
 │   ├── models.py        # Модель Note (SQLAlchemy)
 │   └── crud.py          # CRUD операции
 ├── config/
-│   └── app.conf         # Конфиг для bind mount (челлендж)
+│   └── app.conf         # Конфиг для bind mount
+├── docker-compose.yml   # Оркестрация всех сервисов
+├── Dockerfile           # Сборка образа приложения
+├── .env                 # Переменные окружения (персональные!)
 ├── requirements.txt     # Python-зависимости
 └── README.md
 ```
 
-## 💻 Локальный запуск (без Docker)
+## Быстрый старт (Docker Compose)
 
-### 1. Установить зависимости
+### 1. Настроить `.env`
 
-```bash
-cd simple_example
-pip install -r requirements.txt
-```
-
-### 2. Задать переменные окружения
-
-**macOS / Linux:**
+Отредактируйте файл `.env` — укажите **своё имя** и **свой порт**:
 
 ```bash
-export APP_OWNER=ВашеИмя
-export APP_SECRET=ваш_секретный_ключ
-export DATABASE_URL=ваш урл
+APP_OWNER=ВашеИмя
+APP_SECRET=ваш_секретный_ключ
+APP_PORT=8000          # у каждого студента свой порт!
 ```
 
-**Windows (PowerShell):**
-
-```powershell
-$env:APP_OWNER="ВашеИмя"
-$env:APP_SECRET="ваш_секретный_ключ"
-$env:DATABASE_URL="postgresql://postgres"
-```
-
-**Windows (CMD):**
-
-```cmd
-set APP_OWNER=ВашеИмя
-set APP_SECRET=ваш_секретный_ключ
-set DATABASE_URL=postgresql://postgres:postgres@localhost:5432/assistant_db
-```
-
-> Если не задать переменные, приложение запустится со значениями по умолчанию.
-> Для работы заметок необходима запущенная PostgreSQL (см. ниже).
-
-### 3. Запустить сервер
+### 2. Запустить все сервисы
 
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+docker compose up -d --build
 ```
 
-Флаг `--reload` автоматически перезапускает сервер при изменении кода.
+Эта команда:
+- Соберёт образ приложения из `Dockerfile`
+- Запустит PostgreSQL, Redis и FastAPI
+- Настроит сеть между контейнерами
+- Создаст volumes для данных
 
-### 4. Открыть в браузере
+### 3. Проверить работу
 
-- Приложение: **http://localhost:8000**
-- Swagger UI: **http://localhost:8000/docs**
+```bash
+# Статус контейнеров
+docker compose ps
 
-## 📡 Эндпоинты
+# Логи приложения
+docker compose logs app
+
+# Проверить API
+curl http://localhost:8000/
+curl http://localhost:8000/health
+curl http://localhost:8000/weather/Moscow
+curl http://localhost:8000/weather/Moscow   # второй раз — из кэша!
+curl http://localhost:8000/cache/stats
+```
+
+### 4. Остановить
+
+```bash
+docker compose down           # остановить контейнеры
+docker compose down -v        # остановить + удалить volumes
+```
+
+---
+
+## Архитектура сервисов
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   FastAPI    │────▶│  PostgreSQL  │     │    Redis     │
+│   (app)      │     │    (db)      │     │   (redis)    │
+│  :8000       │     │  :5432       │     │  :6379       │
+│              │────▶│              │     │              │
+│              │────────────────────────▶│              │
+└─────────────┘     └─────────────┘     └─────────────┘
+       ▲                   │                    │
+       │            postgres-data          redis-data
+       │              (volume)              (volume)
+   APP_PORT
+  (хост-порт)
+```
+
+### Сервисы в `docker-compose.yml`
+
+| Сервис | Образ | Назначение |
+|--------|-------|------------|
+| `app` | Собирается из `Dockerfile` | FastAPI-приложение |
+| `db` | `postgres:16-alpine` | База данных для заметок |
+| `redis` | `redis:7-alpine` | Кэш погодных запросов |
+
+### Ключевые возможности Compose
+
+| Возможность | Где используется |
+|-------------|-----------------|
+| `depends_on` + `condition` | `app` ждёт готовности `db` и `redis` (healthcheck) |
+| `networks` | Общая сеть `assistant-net` для связи сервисов |
+| `volumes` | `postgres-data` и `redis-data` для персистентности |
+| `environment` | Переменные окружения из `.env` файла |
+| `healthcheck` | Проверка готовности PostgreSQL и Redis |
+| `restart` | Автоперезапуск при падении (`unless-stopped`) |
+
+---
+
+## Redis-кэширование погоды
+
+Эндпоинт `/weather/{city}` кэширует результаты в Redis, чтобы не спамить внешний API Open-Meteo.
+
+### Как это работает
+
+1. Запрос `/weather/Moscow` — приложение проверяет Redis
+2. **Cache miss** — данные запрашиваются у Open-Meteo, сохраняются в Redis с TTL
+3. Повторный запрос `/weather/Moscow` — **cache hit**, данные из Redis (мгновенно)
+4. Через `CACHE_TTL` секунд кэш истекает — снова запрос к API
+
+### Ключ кэша
+
+Формат: `weather:{APP_OWNER}:{city}` — данные в кэше привязаны к владельцу, что обеспечивает уникальность.
+
+### Поля ответа
+
+В ответе `/weather/{city}` появились новые поля:
+
+| Поле | Описание |
+|------|----------|
+| `source` | `"api"` — данные из Open-Meteo, `"cache"` — из Redis |
+| `hostname` | ID контейнера (полезно при масштабировании) |
+| `server_time` | Время сервера в UTC |
+| `owner` | Имя владельца из `APP_OWNER` |
+
+### Эндпоинт `/cache/stats`
+
+Показывает статистику кэша: сколько городов закэшировано, TTL каждого ключа.
+
+---
+
+## Эндпоинты
 
 | Метод | URL | Описание |
 |-------|-----|----------|
 | GET | `/` | Главная страница — приветствие и список эндпоинтов |
-| GET | `/health` | Healthcheck — статус приложения |
-| GET | `/docs` | Swagger UI — интерактивная документация (встроена в FastAPI) |
-| GET | `/me` | Информация о владельце (из переменных окружения) |
-| GET | `/secret/{key}` | Проверка секретного ключа — убедитесь, что `APP_SECRET` пробрасывается |
-| GET | `/weather/{city}` | Текущая погода в городе через Open-Meteo API |
-| POST | `/notes` | Создать заметку в БД (тело: `{"text": "..."}`) |
-| GET | `/notes` | Получить все заметки текущего владельца |
+| GET | `/health` | Healthcheck — статус приложения и Redis |
+| GET | `/docs` | Swagger UI — интерактивная документация |
+| GET | `/me` | Информация о владельце |
+| GET | `/secret/{key}` | Проверка секретного ключа |
+| GET | `/weather/{city}` | Погода с Redis-кэшированием |
+| GET | `/cache/stats` | Статистика кэша текущего владельца |
+| POST | `/notes` | Создать заметку (тело: `{"text": "..."}`) |
+| GET | `/notes` | Получить все заметки |
 | GET | `/notes/{id}` | Получить заметку по ID |
 | DELETE | `/notes/{id}` | Удалить заметку по ID |
 
-### Примеры запросов
+---
 
-```bash
-# Главная
-curl http://localhost:8000/
-
-# Погода в Москве
-curl http://localhost:8000/weather/Moscow
-
-# Проверка секретного ключа
-curl http://localhost:8000/secret/ваш_секретный_ключ
-
-# Создать заметку (сохраняется в PostgreSQL)
-curl -X POST http://localhost:8000/notes \
-  -H "Content-Type: application/json" \
-  -d '{"text": "Моя первая заметка"}'
-
-# Получить заметки текущего владельца
-curl http://localhost:8000/notes
-
-# Получить заметку по ID
-curl http://localhost:8000/notes/1
-
-# Удалить заметку
-curl -X DELETE http://localhost:8000/notes/1
-```
-
-## 🔑 Переменные окружения
+## Переменные окружения
 
 | Переменная | Описание | Значение по умолчанию |
 |------------|----------|-----------------------|
 | `APP_OWNER` | Имя владельца приложения | `anonymous` |
-| `APP_SECRET` | Секретный ключ для эндпоинта `/secret/{key}` | `default_secret` |
-| `DATABASE_URL` | Строка подключения к PostgreSQL | `postgresql://postgres:postgres@localhost:5432/assistant_db` |
+| `APP_SECRET` | Секретный ключ для `/secret/{key}` | `default_secret` |
+| `APP_PORT` | Порт приложения на хосте | `8000` |
+| `POSTGRES_USER` | Пользователь PostgreSQL | `postgres` |
+| `POSTGRES_PASSWORD` | Пароль PostgreSQL | `postgres` |
+| `POSTGRES_DB` | Имя базы данных | `assistant_db` |
+| `REDIS_URL` | URL подключения к Redis | `redis://redis:6379/0` |
+| `CACHE_TTL` | Время жизни кэша в секундах | `300` |
 
+---
 
-## 🗄 PostgreSQL (для эндпоинтов /notes)
+## Масштабирование
 
-Заметки хранятся в PostgreSQL. Для локальной разработки проще всего запустить БД через Docker:
+Для демонстрации масштабирования уберите `container_name` у сервиса `app` в `docker-compose.yml` и запустите несколько реплик:
 
 ```bash
-docker run -d \
-  --name assistant-db \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=assistant_db \
-  -p 5432:5432 \
-  postgres:16-alpine
+docker compose up -d --build --scale app=3
 ```
 
-Таблица `notes` создаётся автоматически при старте приложения (`Base.metadata.create_all`).
+Каждый контейнер вернёт свой `hostname` в ответе API — это позволяет увидеть, какой именно экземпляр обработал запрос.
 
-### Файл config/app.conf
+> При масштабировании маппинг фиксированного порта (`APP_PORT:8000`) работать не будет.
+> Нужно убрать `ports` или использовать nginx как reverse-proxy перед репликами.
 
-В папке `config/` лежит файл `app.conf` — пример конфигурации для **bind mount** в лабораторной работе 4. Студент может монтировать этот файл в контейнер и использовать значения из него.
+---
 
-## 🌤 API погоды — важно для пользователей из РФ
+## Полезные команды
 
-Эндпоинт `/weather/{city}` обращается к открытому API **[Open-Meteo](https://open-meteo.com/)** (бесплатный, без ключа):
+```bash
+# Сборка и запуск
+docker compose up -d --build
 
-1. **Геокодинг** — `geocoding-api.open-meteo.com` — получает координаты города
-2. **Прогноз** — `api.open-meteo.com` — получает текущую погоду по координатам
+# Статус
+docker compose ps
 
-### ⚠️ Блокировки РКН
+# Логи конкретного сервиса
+docker compose logs -f app
+docker compose logs -f redis
 
-Домены `open-meteo.com` могут быть недоступны из российских сетей из-за блокировок РКН.
+# Подключиться к Redis CLI
+docker compose exec redis redis-cli
+> KEYS weather:*
+> GET weather:student:moscow
+> TTL weather:student:moscow
 
-Если эндпоинт `/weather/{city}` возвращает ошибку таймаута — **необходимо использовать средства обхода блокировок:**
+# Подключиться к PostgreSQL
+docker compose exec db psql -U postgres -d assistant_db
+> SELECT * FROM notes;
 
-- **VPN** — включите VPN на машине, где запущен Docker
+# Пересобрать только приложение
+docker compose up -d --build app
 
-## ✅ Как проверить, что всё работает
+# Полная очистка
+docker compose down -v --rmi local
+```
 
-1. `curl http://localhost:8000/` — должен вернуть приветствие с вашим именем
-2. `curl http://localhost:8000/me` — должен показать `secret_prefix` (первые 6 символов вашего ключа)
-3. `curl http://localhost:8000/secret/ваш_ключ` — должен вернуть `LAB2_SUCCESS_ВАШЕИМЯ`
-4. `curl http://localhost:8000/weather/London` — должен вернуть температуру, влажность, ветер
-5. `docker inspect --format='{{.State.Health.Status}}' personal-assistant` — должен вернуть `healthy`
+---
 
+## Защита работы
+
+Для защиты лабораторной необходимо продемонстрировать:
+
+1. **Персональный порт** — в `.env` указан уникальный `APP_PORT`
+2. **Персональные данные в кэше** — ключи содержат ваше имя (`weather:ВашеИмя:город`)
+3. **Скриншоты с hostname и временем** — в ответах API есть `hostname` и `server_time`
+4. **Работающий кэш** — первый запрос возвращает `"source": "api"`, повторный — `"source": "cache"`
+5. **`docker compose ps`** — все три сервиса healthy
+
+### Примеры запросов для скриншотов
+
+```bash
+# 1. Главная (hostname + server_time)
+curl http://localhost:8000/
+
+# 2. Первый запрос погоды (source: api)
+curl http://localhost:8000/weather/London
+
+# 3. Повторный запрос (source: cache)
+curl http://localhost:8000/weather/London
+
+# 4. Статистика кэша
+curl http://localhost:8000/cache/stats
+
+# 5. Health check (redis: true)
+curl http://localhost:8000/health
+```
+
+---
+
+## Связь с предыдущими ЛР
+
+- **ЛР2/ЛР3** — можно использовать образы, собранные ранее, или собрать заново через `docker compose build`
+- **ЛР4** — `config/app.conf` монтируется через `volumes` в `docker-compose.yml`
+- **ЛР5** — текущая работа: Docker Compose, зависимости сервисов, Redis-кэширование
+
+---
+
+## API погоды — важно для пользователей из РФ
+
+Эндпоинт `/weather/{city}` обращается к **[Open-Meteo](https://open-meteo.com/)** (бесплатный, без ключа).
+
+Домены `open-meteo.com` могут быть недоступны из российских сетей. Если `/weather/{city}` возвращает таймаут — используйте VPN.
