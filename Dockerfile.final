@@ -1,0 +1,20 @@
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/sakulin -r requirements.txt
+
+FROM python:3.11-slim AS runner
+
+LABEL maintainer="sakulin@lab.local"
+LABEL version="2.0"
+
+WORKDIR /app
+COPY --from=builder /sakulin /usr/local
+COPY app/ ./app/
+EXPOSE 5465
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "from urllib.request import urlopen; urlopen('http://localhost:5465/health')" || exit 1
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "5465"]
