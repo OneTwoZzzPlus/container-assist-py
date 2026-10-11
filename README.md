@@ -2,6 +2,106 @@
 
 Простое FastAPI-приложение, которое используется как основа для лабораторной работы по Docker.
 
+## Лабораторная 2. Запуск через Docker
+
+| Параметр             | Ваше значение     |
+| -------------------- | ----------------- |
+| Номер ИСУ            | `467335`          |
+| Персональный порт    | `5465`            |
+| Персональный префикс | `sakulin`         |
+| Секретный ключ       | `secret35sakulin` |
+
+### 1. Базовый образ `v1`
+
+```bash
+# сборка
+docker build -t sakulin-assistant:v1 .
+
+# запуск
+docker run -d \
+  --name sakulin-assistant-v1 \
+  -p 5465:5465 \
+  -e APP_OWNER=sakulin \
+  -e APP_SECRET=secret35sakulin \
+  sakulin-assistant:v1
+
+# проверка
+docker ps
+curl http://localhost:5465/; echo
+curl http://localhost:5465/me; echo
+curl -X POST http://localhost:5465/notes \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Моя первая заметка"}'; echo
+curl http://localhost:5465/notes; echo
+curl http://localhost:5465/secret/secret35sakulin; echo
+```
+
+### 2. Оптимизированный образ `v2`
+
+```bash
+# освободить порт 5465
+docker stop sakulin-assistant-v1
+docker rm sakulin-assistant-v1
+
+# сборка
+docker build -f Dockerfile.optimized -t sakulin-assistant:v2 .
+
+# запуск
+docker run -d \
+  --name sakulin-assistant-v2 \
+  -p 5465:5465 \
+  -e APP_OWNER=sakulin \
+  -e APP_SECRET=secret35sakulin \
+  sakulin-assistant:v2
+
+# проверка
+docker ps
+curl http://localhost:5465/; echo
+curl http://localhost:5465/secret/secret35sakulin; echo
+
+# сравнение
+docker images | grep sakulin-assistant
+```
+
+### 3. Финальный образ с `healthcheck`
+
+```bash
+# освободить порт 5465
+docker stop sakulin-assistant-v2
+docker rm sakulin-assistant-v2
+
+# сборка
+docker build -f Dockerfile.final -t sakulin-assistant:final .
+
+# запуск
+docker run -d \
+  --name sakulin-assistant-final \
+  -p 5465:5465 \
+  -e APP_OWNER=sakulin \
+  -e APP_SECRET=secret35sakulin \
+  sakulin-assistant:final
+
+# проверка
+docker ps --filter "name=sakulin-assistant-final" --format=' table {{.Names}}\t{{.Status}}'
+# ожидаемый вывод: Up (healthy)
+```
+
+### 4. Тегирование финального образа
+
+```bash
+docker tag sakulin-assistant:final sakulin-assistant:1.0.0
+docker tag sakulin-assistant:final sakulin-assistant:$(date +%Y%m%d)
+docker images | grep sakulin-assistant
+```
+
+### 5. Очистка
+
+```bash
+docker stop sakulin-assistant
+docker rm sakulin-assistant
+docker rmi sakulin-assistant:v1 sakulin-assistant:v2 sakulin-assistant:final
+```
+
 ## 📁 Структура проекта
 
 ```txt
@@ -122,87 +222,3 @@ curl http://localhost:8000/notes
 3. `curl http://localhost:8000/secret/ваш_ключ` — должен вернуть `LAB2_SUCCESS_ВАШЕИМЯ`
 4. `curl http://localhost:8000/weather/London` — должен вернуть температуру, влажность, ветер
 5. `docker inspect --format='{{.State.Health.Status}}' personal-assistant` — должен вернуть `healthy`
-
-## Лабораторная 2. Запуск через Docker
-
-Параметры: ИСУ `467335`, порт `5465`, префикс `sakulin`, секрет `secret35sakulin`.
-
-### 1. Базовый образ `v1`
-
-```bash
-# сборка
-docker build -t sakulin-assistant:v1 .
-
-# запуск
-docker run -d --name sakulin-assistant-v1 \
-  -p 5465:5465 \
-  -e APP_OWNER=sakulin \
-  -e APP_SECRET=secret35sakulin \
-  sakulin-assistant:v1
-
-# проверка
-curl http://localhost:5465/
-curl http://localhost:5465/me
-curl http://localhost:5465/secret/secret35sakulin
-curl -X POST http://localhost:5465/notes \
-  -H "Content-Type: application/json" \
-  -d '{"text": "Моя первая заметка"}'
-curl http://localhost:5465/notes
-curl http://localhost:5465/weather/London
-```
-
-### 2. Оптимизированный образ `v2`
-
-```bash
-# освободить порт 5465
-docker stop sakulin-assistant-v1
-docker rm sakulin-assistant-v1
-
-# сборка (если оптимизированный Dockerfile называется иначе — поменяй -f)
-docker build -f Dockerfile.optimized -t sakulin-assistant:v2 .
-
-# запуск
-docker run -d --name sakulin-assistant-v2 \
-  -p 5465:5465 \
-  -e APP_OWNER=sakulin \
-  -e APP_SECRET=secret35sakulin \
-  sakulin-assistant:v2
-```
-
-### 3. Финальный образ с `healthcheck`
-
-```bash
-# освободить порт 5465
-docker stop sakulin-assistant-v2
-docker rm sakulin-assistant-v2
-
-# сборка
-docker build -f Dockerfile.final -t sakulin-assistant:final .
-
-# запуск
-docker run -d --name personal-assistant \
-  -p 5465:5465 \
-  -e APP_OWNER=sakulin \
-  -e APP_SECRET=secret35sakulin \
-  sakulin-assistant:final
-
-# проверка статуса здоровья
-docker inspect --format='{{.State.Health.Status}}' personal-assistant
-# ожидаемый вывод: healthy
-```
-
-### 4. Тегирование финального образа
-
-```bash
-docker tag sakulin-assistant:final sakulin-assistant:2.0
-docker tag sakulin-assistant:final sakulin-assistant:2026-10-07
-docker images | grep sakulin-assistant
-```
-
-### 5. Очистка
-
-```bash
-docker stop personal-assistant
-docker rm personal-assistant
-docker rmi sakulin-assistant:v1 sakulin-assistant:v2 sakulin-assistant:final
-```
