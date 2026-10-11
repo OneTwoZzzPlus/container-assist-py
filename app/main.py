@@ -1,12 +1,13 @@
-from fastapi import FastAPI, Depends
+import os
+
+import httpx
+from fastapi import Depends, FastAPI
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-import os
-import httpx
 
+from app import crud
 from app.database import engine, get_db
 from app.models import Base
-from app import crud
 
 Base.metadata.create_all(bind=engine)
 
