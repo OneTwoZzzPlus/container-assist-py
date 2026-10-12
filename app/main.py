@@ -1,19 +1,19 @@
-from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 import json
 import logging
 import os
 import socket
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
-from fastapi import FastAPI, Depends
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
 import httpx
 import redis.asyncio as aioredis
+from fastapi import Depends, FastAPI
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
+from app import crud
 from app.database import engine, get_db
 from app.models import Base
-from app import crud
 
 logger = logging.getLogger("uvicorn.error")
 

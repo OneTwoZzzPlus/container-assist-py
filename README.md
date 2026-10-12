@@ -4,7 +4,7 @@
 
 ## Структура проекта
 
-```
+```tree
 simple_example/
 ├── app/
 │   ├── __init__.py
@@ -25,12 +25,18 @@ simple_example/
 
 ### 1. Настроить `.env`
 
-Отредактируйте файл `.env` — укажите **своё имя** и **свой порт**:
+Создайте файл `.env` — укажите **свои данные**:
 
 ```bash
-APP_OWNER=ВашеИмя
-APP_SECRET=ваш_секретный_ключ
-APP_PORT=8000          # у каждого студента свой порт!
+APP_OWNER=sakulin
+APP_SECRET=secret35sakulin
+APP_PORT=8035
+POSTGRES_USER=user_35
+POSTGRES_PASSWORD=pgpass_35
+POSTGRES_DB=assistant_35
+PG_PORT=5465
+REDIS_PORT=6405
+CACHE_TTL=120
 ```
 
 ### 2. Запустить все сервисы
@@ -40,6 +46,7 @@ docker compose up -d --build
 ```
 
 Эта команда:
+
 - Соберёт образ приложения из `Dockerfile`
 - Запустит PostgreSQL, Redis и FastAPI
 - Настроит сеть между контейнерами
@@ -73,39 +80,43 @@ docker compose down -v        # остановить + удалить volumes
 
 ## Архитектура сервисов
 
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   FastAPI    │────▶│  PostgreSQL  │     │    Redis     │
-│   (app)      │     │    (db)      │     │   (redis)    │
-│  :8000       │     │  :5432       │     │  :6379       │
-│              │────▶│              │     │              │
-│              │────────────────────────▶│              │
-└─────────────┘     └─────────────┘     └─────────────┘
-       ▲                   │                    │
-       │            postgres-data          redis-data
-       │              (volume)              (volume)
-   APP_PORT
-  (хост-порт)
+```mermaid
+graph TD
+    Host["APP_PORT<br/>(хост-порт)"] -->|Проброс портов| App["FastAPI<br/>(:8000)"]
+
+    App -->|"SQL-запросы"| DB["PostgreSQL<br/>(:5432)"]
+    App -->|"Кэш / Данные"| Redis["Redis<br/>(:6379)"]
+
+    DB --- PGVol[("postgres-data<br/>(volume)")]
+    Redis --- RedisVol[("redis-data<br/>(volume)")]
+
+    classDef service fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
+    classDef volume fill:#f3e5f5,stroke:#4a148c,stroke-width:2px;
+    classDef external fill:#fff9c4,stroke:#f57f17,stroke-width:2px;
+
+    class App,DB,Redis service;
+    class PGVol,RedisVol volume;
+    class Host external;
 ```
 
 ### Сервисы в `docker-compose.yml`
 
-| Сервис | Образ | Назначение |
-|--------|-------|------------|
-| `app` | Собирается из `Dockerfile` | FastAPI-приложение |
-| `db` | `postgres:16-alpine` | База данных для заметок |
-| `redis` | `redis:7-alpine` | Кэш погодных запросов |
+| Сервис  | Образ                      | Назначение              |
+| ------- | -------------------------- | ----------------------- |
+| `app`   | Собирается из `Dockerfile` | FastAPI-приложение      |
+| `db`    | `postgres:16-alpine`       | База данных для заметок |
+| `redis` | `redis:7-alpine`           | Кэш погодных запросов   |
 
 ### Ключевые возможности Compose
 
-| Возможность | Где используется |
-|-------------|-----------------|
+| Возможность                | Где используется                                   |
+| -------------------------- | -------------------------------------------------- |
 | `depends_on` + `condition` | `app` ждёт готовности `db` и `redis` (healthcheck) |
-| `networks` | Общая сеть `assistant-net` для связи сервисов |
-| `volumes` | `postgres-data` и `redis-data` для персистентности |
-| `environment` | Переменные окружения из `.env` файла |
-| `healthcheck` | Проверка готовности PostgreSQL и Redis |
-| `restart` | Автоперезапуск при падении (`unless-stopped`) |
+| `networks`                 | Общая сеть `assistant-net` для связи сервисов      |
+| `volumes`                  | `postgres-data` и `redis-data` для персистентности |
+| `environment`              | Переменные окружения из `.env` файла               |
+| `healthcheck`              | Проверка готовности PostgreSQL и Redis             |
+| `restart`                  | Автоперезапуск при падении (`unless-stopped`)      |
 
 ---
 
@@ -128,12 +139,12 @@ docker compose down -v        # остановить + удалить volumes
 
 В ответе `/weather/{city}` появились новые поля:
 
-| Поле | Описание |
-|------|----------|
-| `source` | `"api"` — данные из Open-Meteo, `"cache"` — из Redis |
-| `hostname` | ID контейнера (полезно при масштабировании) |
-| `server_time` | Время сервера в UTC |
-| `owner` | Имя владельца из `APP_OWNER` |
+| Поле          | Описание                                             |
+| ------------- | ---------------------------------------------------- |
+| `source`      | `"api"` — данные из Open-Meteo, `"cache"` — из Redis |
+| `hostname`    | ID контейнера (полезно при масштабировании)          |
+| `server_time` | Время сервера в UTC                                  |
+| `owner`       | Имя владельца из `APP_OWNER`                         |
 
 ### Эндпоинт `/cache/stats`
 
@@ -143,34 +154,34 @@ docker compose down -v        # остановить + удалить volumes
 
 ## Эндпоинты
 
-| Метод | URL | Описание |
-|-------|-----|----------|
-| GET | `/` | Главная страница — приветствие и список эндпоинтов |
-| GET | `/health` | Healthcheck — статус приложения и Redis |
-| GET | `/docs` | Swagger UI — интерактивная документация |
-| GET | `/me` | Информация о владельце |
-| GET | `/secret/{key}` | Проверка секретного ключа |
-| GET | `/weather/{city}` | Погода с Redis-кэшированием |
-| GET | `/cache/stats` | Статистика кэша текущего владельца |
-| POST | `/notes` | Создать заметку (тело: `{"text": "..."}`) |
-| GET | `/notes` | Получить все заметки |
-| GET | `/notes/{id}` | Получить заметку по ID |
-| DELETE | `/notes/{id}` | Удалить заметку по ID |
+| Метод  | URL               | Описание                                           |
+| ------ | ----------------- | -------------------------------------------------- |
+| GET    | `/`               | Главная страница — приветствие и список эндпоинтов |
+| GET    | `/health`         | Healthcheck — статус приложения и Redis            |
+| GET    | `/docs`           | Swagger UI — интерактивная документация            |
+| GET    | `/me`             | Информация о владельце                             |
+| GET    | `/secret/{key}`   | Проверка секретного ключа                          |
+| GET    | `/weather/{city}` | Погода с Redis-кэшированием                        |
+| GET    | `/cache/stats`    | Статистика кэша текущего владельца                 |
+| POST   | `/notes`          | Создать заметку (тело: `{"text": "..."}`)          |
+| GET    | `/notes`          | Получить все заметки                               |
+| GET    | `/notes/{id}`     | Получить заметку по ID                             |
+| DELETE | `/notes/{id}`     | Удалить заметку по ID                              |
 
 ---
 
 ## Переменные окружения
 
-| Переменная | Описание | Значение по умолчанию |
-|------------|----------|-----------------------|
-| `APP_OWNER` | Имя владельца приложения | `anonymous` |
-| `APP_SECRET` | Секретный ключ для `/secret/{key}` | `default_secret` |
-| `APP_PORT` | Порт приложения на хосте | `8000` |
-| `POSTGRES_USER` | Пользователь PostgreSQL | `postgres` |
-| `POSTGRES_PASSWORD` | Пароль PostgreSQL | `postgres` |
-| `POSTGRES_DB` | Имя базы данных | `assistant_db` |
-| `REDIS_URL` | URL подключения к Redis | `redis://redis:6379/0` |
-| `CACHE_TTL` | Время жизни кэша в секундах | `300` |
+| Переменная          | Описание                           | Значение по умолчанию  |
+| ------------------- | ---------------------------------- | ---------------------- |
+| `APP_OWNER`         | Имя владельца приложения           | `anonymous`            |
+| `APP_SECRET`        | Секретный ключ для `/secret/{key}` | `default_secret`       |
+| `APP_PORT`          | Порт приложения на хосте           | `8000`                 |
+| `POSTGRES_USER`     | Пользователь PostgreSQL            | `postgres`             |
+| `POSTGRES_PASSWORD` | Пароль PostgreSQL                  | `postgres`             |
+| `POSTGRES_DB`       | Имя базы данных                    | `assistant_db`         |
+| `REDIS_URL`         | URL подключения к Redis            | `redis://redis:6379/0` |
+| `CACHE_TTL`         | Время жизни кэша в секундах        | `300`                  |
 
 ---
 
