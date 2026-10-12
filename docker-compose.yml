@@ -1,0 +1,47 @@
+services:
+  db:
+    image: postgres:15
+    container_name: sakulin-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - sakulin-pgdata:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5465}:5432"
+    networks:
+      - sakulin-backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: sakulin-assistant
+    environment:
+      APP_OWNER: ${APP_OWNER}
+      APP_SECRET: ${APP_SECRET}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+    volumes:
+      - ./config:/app/config:ro
+    ports:
+      - "${APP_PORT:-8035}:${APP_PORT:-8035}"
+    networks:
+      - sakulin-backend
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  sakulin-pgdata:
+
+networks:
+  sakulin-backend:
+    driver: bridge
