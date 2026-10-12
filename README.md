@@ -268,3 +268,10 @@ curl http://localhost:8000/health
 Эндпоинт `/weather/{city}` обращается к **[Open-Meteo](https://open-meteo.com/)** (бесплатный, без ключа).
 
 Домены `open-meteo.com` могут быть недоступны из российских сетей. Если `/weather/{city}` возвращает таймаут — используйте VPN.
+
+Если VPN включен, но запросы не доходят, перезагрузите docker и пересоберите контейнеры (пересборка и перезагрузка может потребоваться несколько раз).
+
+```bash
+sudo systemctl restart docker
+docker compose down && docker compose up -d --build
+```
