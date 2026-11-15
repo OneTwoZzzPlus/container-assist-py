@@ -1,5 +1,7 @@
 # 🎓 Personal Assistant — учебный проект для практики Docker
 
+> [Ход работы](./lab3/README.MD) | [список всех лаб](https://github.com/OneTwoZzzPlus/container-assist-py)
+
 Простое FastAPI-приложение, которое используется как основа для лабораторной работы по Docker.
 
 ## Лабораторная 3. Персистентность и изоляция
