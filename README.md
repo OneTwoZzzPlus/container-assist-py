@@ -1,277 +1,340 @@
-# Personal Assistant — учебный проект для практики Docker
+# 🎓 Personal Assistant — учебный проект для практики Docker
 
-Простое FastAPI-приложение, которое используется как основа для лабораторных работ по Docker.
+> [Ход работы](./lab5/README.MD) | [список всех лаб](https://github.com/OneTwoZzzPlus/container-assist-py)
+
+Простое FastAPI-приложение с PostgreSQL и Redis. Для развёртывания используется локальный кластер Kubernetes: приложение, база данных и кэш запускаются в отдельных Pod, а для их взаимодействия применяются Service и стандартные ресурсы Kubernetes.
 
 ## Структура проекта
 
-```tree
-simple_example/
+```text
+.
 ├── app/
 │   ├── __init__.py
-│   ├── main.py          # FastAPI + маршруты + Redis-кэширование
-│   ├── database.py      # Подключение к PostgreSQL
-│   ├── models.py        # Модель Note (SQLAlchemy)
-│   └── crud.py          # CRUD операции
+│   ├── main.py                  # FastAPI, маршруты и Redis-кэширование
+│   ├── database.py              # Подключение к PostgreSQL
+│   ├── models.py                # Модель Note (SQLAlchemy)
+│   └── crud.py                  # CRUD-операции для заметок
 ├── config/
-│   └── app.conf         # Конфиг для bind mount
-├── docker-compose.yml   # Оркестрация всех сервисов
-├── Dockerfile           # Сборка образа приложения
-├── .env                 # Переменные окружения (персональные!)
-├── requirements.txt     # Python-зависимости
+│   └── app.conf                 # Конфигурация приложения
+├── k8s/
+│   ├── postgres-pvc.yaml        # Постоянное хранилище PostgreSQL
+│   ├── postgres-deployment.yaml # Deployment PostgreSQL
+│   ├── postgres-service.yaml    # Внутренний Service PostgreSQL
+│   ├── redis-deployment.yaml    # Deployment Redis
+│   ├── redis-service.yaml       # Внутренний Service Redis
+│   ├── app-configmap.yaml       # Несекретные настройки приложения
+│   ├── app-secret.example.yaml  # Шаблон Secret с учебными значениями
+│   ├── app-deployment.yaml      # Deployment FastAPI с readiness/liveness probes
+│   ├── app-service.yaml         # Service для доступа к приложению
+│   └── app-ingress.yaml         # Ingress (необязательно, бонус)
+├── Dockerfile                  # Сборка образа FastAPI-приложения
+├── requirements.txt            # Python-зависимости
+├── .gitignore                  # Исключения Git, в том числе настоящий app-secret.yaml
 └── README.md
 ```
 
-## Быстрый старт (Docker Compose)
+Файл `k8s/app-secret.yaml` создаётся локально на основе `k8s/app-secret.example.yaml` и не добавляется в Git. В `.gitignore` должна быть строка:
 
-### 1. Настроить `.env`
-
-Создайте файл `.env` — укажите **свои данные**:
-
-```bash
-APP_OWNER=sakulin
-APP_SECRET=secret35sakulin
-APP_PORT=8035
-POSTGRES_USER=user_35
-POSTGRES_PASSWORD=pgpass_35
-POSTGRES_DB=assistant_35
-PG_PORT=5465
-REDIS_PORT=6405
-CACHE_TTL=120
+```gitignore
+k8s/app-secret.yaml
 ```
 
-### 2. Запустить все сервисы
+Все команды ниже выполняются из каталога проекта — того, в котором находятся `Dockerfile` и папка `k8s/`.
 
-```bash
-docker compose up -d --build
-```
+## Kubernetes
 
-Эта команда:
+### Архитектура
 
-- Соберёт образ приложения из `Dockerfile`
-- Запустит PostgreSQL, Redis и FastAPI
-- Настроит сеть между контейнерами
-- Создаст volumes для данных
-
-### 3. Проверить работу
-
-```bash
-# Статус контейнеров
-docker compose ps
-
-# Логи приложения
-docker compose logs app
-
-# Проверить API
-curl http://localhost:8000/
-curl http://localhost:8000/health
-curl http://localhost:8000/weather/Moscow
-curl http://localhost:8000/weather/Moscow   # второй раз — из кэша!
-curl http://localhost:8000/cache/stats
-```
-
-### 4. Остановить
-
-```bash
-docker compose down           # остановить контейнеры
-docker compose down -v        # остановить + удалить volumes
-```
-
----
-
-## Архитектура сервисов
+Kubernetes заменяет Docker Compose и управляет запуском контейнеров через Deployments. Внутренние Service предоставляют постоянные адреса для связи приложения с PostgreSQL и Redis. Данные PostgreSQL сохраняются в PersistentVolume, запрошенном через PersistentVolumeClaim.
 
 ```mermaid
 graph TD
-    Host["APP_PORT<br/>(хост-порт)"] -->|Проброс портов| App["FastAPI<br/>(:8000)"]
-
-    App -->|"SQL-запросы"| DB["PostgreSQL<br/>(:5432)"]
-    App -->|"Кэш / Данные"| Redis["Redis<br/>(:6379)"]
-
-    DB --- PGVol[("postgres-data<br/>(volume)")]
-    Redis --- RedisVol[("redis-data<br/>(volume)")]
-
-    classDef service fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
-    classDef volume fill:#f3e5f5,stroke:#4a148c,stroke-width:2px;
-    classDef external fill:#fff9c4,stroke:#f57f17,stroke-width:2px;
-
-    class App,DB,Redis service;
-    class PGVol,RedisVol volume;
-    class Host external;
+    Client[Хост] -->|NodePort / minikube service| AppSvc[Service app]
+    AppSvc --> AppPod[Deployment app / FastAPI]
+    AppPod -->|postgres:5432| PgSvc[Service postgres]
+    PgSvc --> PgPod[Deployment postgres]
+    PgPod --> PgPVC[(PersistentVolumeClaim)]
+    AppPod -->|redis:6379| RedisSvc[Service redis]
+    RedisSvc --> RedisPod[Deployment redis]
 ```
 
-### Сервисы в `docker-compose.yml`
+### Предварительные требования
 
-| Сервис  | Образ                      | Назначение              |
-| ------- | -------------------------- | ----------------------- |
-| `app`   | Собирается из `Dockerfile` | FastAPI-приложение      |
-| `db`    | `postgres:16-alpine`       | База данных для заметок |
-| `redis` | `redis:7-alpine`           | Кэш погодных запросов   |
+Установите:
 
-### Ключевые возможности Compose
+- Docker;
+- `kubectl`;
+- Minikube (можно использовать kind вместо Minikube).
 
-| Возможность                | Где используется                                   |
-| -------------------------- | -------------------------------------------------- |
-| `depends_on` + `condition` | `app` ждёт готовности `db` и `redis` (healthcheck) |
-| `networks`                 | Общая сеть `assistant-net` для связи сервисов      |
-| `volumes`                  | `postgres-data` и `redis-data` для персистентности |
-| `environment`              | Переменные окружения из `.env` файла               |
-| `healthcheck`              | Проверка готовности PostgreSQL и Redis             |
-| `restart`                  | Автоперезапуск при падении (`unless-stopped`)      |
+Для локального кластера рекомендуется выделить не менее 2 CPU и 4 ГБ памяти.
 
----
+### 1. Запустить кластер
 
-## Redis-кэширование погоды
+Для Minikube:
 
-Эндпоинт `/weather/{city}` кэширует результаты в Redis, чтобы не спамить внешний API Open-Meteo.
+```bash
+minikube start --cpus=2 --memory=4096
+kubectl cluster-info
+kubectl get nodes
+```
 
-### Как это работает
+Убедитесь, что узел кластера находится в состоянии `Ready`.
 
-1. Запрос `/weather/Moscow` — приложение проверяет Redis
-2. **Cache miss** — данные запрашиваются у Open-Meteo, сохраняются в Redis с TTL
-3. Повторный запрос `/weather/Moscow` — **cache hit**, данные из Redis (мгновенно)
-4. Через `CACHE_TTL` секунд кэш истекает — снова запрос к API
+### 2. Собрать образ приложения и передать его в кластер
 
-### Ключ кэша
+Соберите образ из `Dockerfile`:
 
-Формат: `weather:{APP_OWNER}:{city}` — данные в кэше привязаны к владельцу, что обеспечивает уникальность.
+```bash
+docker build -t personal-assistant:lab5 .
+```
 
-### Поля ответа
+Для локального Minikube загрузите собранный образ в кластер:
 
-В ответе `/weather/{city}` появились новые поля:
+```bash
+minikube image load personal-assistant:lab5
+```
 
-| Поле          | Описание                                             |
-| ------------- | ---------------------------------------------------- |
-| `source`      | `"api"` — данные из Open-Meteo, `"cache"` — из Redis |
-| `hostname`    | ID контейнера (полезно при масштабировании)          |
-| `server_time` | Время сервера в UTC                                  |
-| `owner`       | Имя владельца из `APP_OWNER`                         |
+В `k8s/app-deployment.yaml` укажите этот образ в поле `spec.template.spec.containers[].image` и задайте `imagePullPolicy: IfNotPresent`. Если образ размещён в Docker Hub, укажите вместо этого его полный адрес и тег; для приватного репозитория дополнительно настройте доступ к нему.
 
-### Эндпоинт `/cache/stats`
+### 3. Подготовить Secret
 
-Показывает статистику кэша: сколько городов закэшировано, TTL каждого ключа.
+Создайте локальный файл на основе шаблона:
 
----
+```bash
+cp k8s/app-secret.example.yaml k8s/app-secret.yaml
+```
 
-## Эндпоинты
+Откройте `k8s/app-secret.yaml` и укажите собственные значения как минимум для `APP_SECRET` и `POSTGRES_PASSWORD`. Не используйте реальные пароли в шаблоне `app-secret.example.yaml` и не коммитьте `app-secret.yaml`.
 
-| Метод  | URL               | Описание                                           |
-| ------ | ----------------- | -------------------------------------------------- |
-| GET    | `/`               | Главная страница — приветствие и список эндпоинтов |
-| GET    | `/health`         | Healthcheck — статус приложения и Redis            |
-| GET    | `/docs`           | Swagger UI — интерактивная документация            |
-| GET    | `/me`             | Информация о владельце                             |
-| GET    | `/secret/{key}`   | Проверка секретного ключа                          |
-| GET    | `/weather/{city}` | Погода с Redis-кэшированием                        |
-| GET    | `/cache/stats`    | Статистика кэша текущего владельца                 |
-| POST   | `/notes`          | Создать заметку (тело: `{"text": "..."}`)          |
-| GET    | `/notes`          | Получить все заметки                               |
-| GET    | `/notes/{id}`     | Получить заметку по ID                             |
-| DELETE | `/notes/{id}`     | Удалить заметку по ID                              |
+Несекретные параметры приложения задаются в `k8s/app-configmap.yaml`. Проверьте, что `APP_OWNER` содержит ваш персональный префикс, а адреса сервисов указаны по именам Kubernetes Service:
 
----
+- PostgreSQL: хост `postgres`, порт `5432`;
+- Redis: `redis://redis:6379/0`.
+
+Имя базы данных, пользователь и пароль PostgreSQL в конфигурации приложения должны совпадать со значениями, заданными для Deployment PostgreSQL и в Secret. Если в манифестах используются другие имена ресурсов, синхронно измените адреса подключения и команды ниже.
+
+### 4. Применить манифесты
+
+Применяйте ресурсы в следующем порядке: сначала хранилище и сервисы зависимостей, затем PostgreSQL и Redis, после этого конфигурацию и Secret приложения, и в конце само приложение.
+
+```bash
+# PostgreSQL: хранилище, Service и Deployment
+kubectl apply -f k8s/postgres-pvc.yaml
+kubectl apply -f k8s/postgres-service.yaml
+kubectl apply -f k8s/postgres-deployment.yaml
+
+# Redis: Service и Deployment
+kubectl apply -f k8s/redis-service.yaml
+kubectl apply -f k8s/redis-deployment.yaml
+
+# Конфигурация приложения
+kubectl apply -f k8s/app-configmap.yaml
+kubectl apply -f k8s/app-secret.yaml
+
+# FastAPI: Service и Deployment
+kubectl apply -f k8s/app-service.yaml
+kubectl apply -f k8s/app-deployment.yaml
+```
+
+При необходимости все ресурсы можно применить одной командой после создания `k8s/app-secret.yaml`:
+
+```bash
+kubectl apply -f k8s/
+```
+
+### 5. Проверить запуск
+
+Посмотрите, какие ресурсы созданы:
+
+```bash
+kubectl get all
+kubectl get pvc
+kubectl get configmap
+kubectl get secrets
+```
+
+Дождитесь, пока Pod приложения, PostgreSQL и Redis перейдут в состояние `Running`, а PVC — в `Bound`:
+
+```bash
+kubectl get pods -w
+```
+
+Проверить состояние Deployment можно так:
+
+```bash
+kubectl rollout status deployment/postgres
+kubectl rollout status deployment/redis
+kubectl rollout status deployment/app
+```
+
+В примерах предполагаются имена ресурсов `postgres`, `redis` и `app` в поле `metadata.name`. Если в манифестах выбраны другие имена, подставьте их в команды.
+
+### 6. Открыть приложение и проверить API
+
+Для Service типа `NodePort` откройте приложение через Minikube:
+
+```bash
+minikube service app
+```
+
+Команда выведет адрес приложения. Используйте его вместо `<APP_URL>` в запросах:
+
+```bash
+curl <APP_URL>/
+curl <APP_URL>/health
+curl <APP_URL>/weather/Moscow
+curl <APP_URL>/weather/Moscow
+curl <APP_URL>/cache/stats
+```
+
+Также проверьте работу заметок:
+
+```bash
+curl -X POST <APP_URL>/notes \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Моя первая заметка"}'
+
+curl <APP_URL>/notes
+```
+
+Ожидаемые результаты:
+
+- `GET /` возвращает приветствие, `hostname` и `server_time`;
+- `GET /health` показывает корректное состояние подключения к PostgreSQL и Redis;
+- первый запрос `GET /weather/{city}` получает данные из Open-Meteo и возвращает `"source": "api"`;
+- повторный запрос того же города возвращает данные из Redis и `"source": "cache"`;
+- `POST /notes` создаёт заметку, а `GET /notes` возвращает сохранённые заметки.
+
+### 7. Проверить readiness и liveness probes
+
+В `k8s/app-deployment.yaml` для контейнера приложения должны быть настроены обе HTTP-пробы на эндпоинт `/health` и порт приложения (в этом проекте — `8000`). Например:
+
+```yaml
+readinessProbe:
+    httpGet:
+        path: /health
+        port: 8000
+    initialDelaySeconds: 5
+    periodSeconds: 10
+livenessProbe:
+    httpGet:
+        path: /health
+        port: 8000
+    initialDelaySeconds: 15
+    periodSeconds: 20
+```
+
+`readinessProbe` определяет, готов ли Pod принимать трафик: пока проверка не проходит, Kubernetes не направляет на него запросы через Service. `livenessProbe` проверяет, что контейнер продолжает работать; при провале проверки Kubernetes перезапускает контейнер.
+
+Проверьте настройки и состояние Pod:
+
+```bash
+kubectl describe pod <имя-пода-приложения>
+kubectl get pods
+```
+
+В выводе `describe` должны присутствовать `Readiness` и `Liveness`, а у работающего Pod в Conditions должно быть `Ready: True`.
+
+### 8. Ingress (необязательно)
+
+Ingress — дополнительная настройка. Для Minikube включите аддон:
+
+```bash
+minikube addons enable ingress
+```
+
+Создайте `k8s/app-ingress.yaml` с хостом `<фамилия>.local`, направляющим запросы на Service приложения, и примените его:
+
+```bash
+kubectl apply -f k8s/app-ingress.yaml
+kubectl get ingress
+```
+
+Для обращения по локальному имени настройте разрешение `<фамилия>.local` на IP Minikube в файле hosts вашей операционной системы.
+
+## Эндпоинты API
+
+| Метод  | URL               | Описание                                                         |
+| ------ | ----------------- | ---------------------------------------------------------------- |
+| GET    | `/`               | Приветствие, информация о приложении, `hostname` и `server_time` |
+| GET    | `/health`         | Проверка состояния приложения, PostgreSQL и Redis                |
+| GET    | `/docs`           | Swagger UI — интерактивная документация API                      |
+| GET    | `/me`             | Информация о владельце приложения                                |
+| GET    | `/secret/{key}`   | Проверка секретного ключа                                        |
+| GET    | `/weather/{city}` | Погода с Redis-кэшированием                                      |
+| GET    | `/cache/stats`    | Статистика кэша текущего владельца                               |
+| POST   | `/notes`          | Создать заметку; тело: `{"text": "..."}`                         |
+| GET    | `/notes`          | Получить все заметки                                             |
+| GET    | `/notes/{id}`     | Получить заметку по ID                                           |
+| DELETE | `/notes/{id}`     | Удалить заметку по ID                                            |
 
 ## Переменные окружения
 
-| Переменная          | Описание                           | Значение по умолчанию  |
-| ------------------- | ---------------------------------- | ---------------------- |
-| `APP_OWNER`         | Имя владельца приложения           | `anonymous`            |
-| `APP_SECRET`        | Секретный ключ для `/secret/{key}` | `default_secret`       |
-| `APP_PORT`          | Порт приложения на хосте           | `8000`                 |
-| `POSTGRES_USER`     | Пользователь PostgreSQL            | `postgres`             |
-| `POSTGRES_PASSWORD` | Пароль PostgreSQL                  | `postgres`             |
-| `POSTGRES_DB`       | Имя базы данных                    | `assistant_db`         |
-| `REDIS_URL`         | URL подключения к Redis            | `redis://redis:6379/0` |
-| `CACHE_TTL`         | Время жизни кэша в секундах        | `300`                  |
+Несекретные настройки хранятся в `ConfigMap`, чувствительные данные — в `Secret`. Имена ключей в манифестах должны совпадать с теми, которые читает приложение.
 
----
+| Переменная          | Назначение                                                    | Где задаётся                                            |
+| ------------------- | ------------------------------------------------------------- | ------------------------------------------------------- |
+| `APP_OWNER`         | Персональное имя владельца приложения                         | ConfigMap                                               |
+| `APP_SECRET`        | Секретный ключ для `/secret/{key}`                            | Secret                                                  |
+| `POSTGRES_USER`     | Пользователь PostgreSQL                                       | ConfigMap / Secret — согласно принятой схеме манифестов |
+| `POSTGRES_PASSWORD` | Пароль PostgreSQL                                             | Secret                                                  |
+| `POSTGRES_DB`       | Имя базы данных                                               | ConfigMap                                               |
+| `REDIS_URL`         | Адрес Redis внутри кластера; например, `redis://redis:6379/0` | ConfigMap                                               |
+| `CACHE_TTL`         | Время жизни кэша в секундах                                   | ConfigMap                                               |
 
-## Масштабирование
-
-Для демонстрации масштабирования уберите `container_name` у сервиса `app` в `docker-compose.yml` и запустите несколько реплик:
+## Полезные команды Kubernetes
 
 ```bash
-docker compose up -d --build --scale app=3
+# Список ресурсов и Pod
+kubectl get all
+kubectl get pods -o wide
+kubectl get svc
+kubectl get pvc
+
+# Подробная информация о Pod
+kubectl describe pod <pod-name>
+
+# Логи приложения и зависимостей
+kubectl logs deployment/app
+kubectl logs deployment/postgres
+kubectl logs deployment/redis
+
+# Следить за логами приложения
+kubectl logs -f deployment/app
+
+# Посмотреть события кластера
+kubectl get events --sort-by=.metadata.creationTimestamp
+
+# Перезапустить Deployment приложения после изменения конфигурации
+kubectl rollout restart deployment/app
+kubectl rollout status deployment/app
 ```
 
-Каждый контейнер вернёт свой `hostname` в ответе API — это позволяет увидеть, какой именно экземпляр обработал запрос.
+## Остановка и удаление ресурсов
 
-> При масштабировании маппинг фиксированного порта (`APP_PORT:8000`) работать не будет.
-> Нужно убрать `ports` или использовать nginx как reverse-proxy перед репликами.
-
----
-
-## Полезные команды
+Остановить локальный кластер, сохранив его состояние:
 
 ```bash
-# Сборка и запуск
-docker compose up -d --build
-
-# Статус
-docker compose ps
-
-# Логи конкретного сервиса
-docker compose logs -f app
-docker compose logs -f redis
-
-# Подключиться к Redis CLI
-docker compose exec redis redis-cli
-> KEYS weather:*
-> GET weather:student:moscow
-> TTL weather:student:moscow
-
-# Подключиться к PostgreSQL
-docker compose exec db psql -U postgres -d assistant_db
-> SELECT * FROM notes;
-
-# Пересобрать только приложение
-docker compose up -d --build app
-
-# Полная очистка
-docker compose down -v --rmi local
+minikube stop
 ```
 
----
-
-## Защита работы
-
-Для защиты лабораторной необходимо продемонстрировать:
-
-1. **Персональный порт** — в `.env` указан уникальный `APP_PORT`
-2. **Персональные данные в кэше** — ключи содержат ваше имя (`weather:ВашеИмя:город`)
-3. **Скриншоты с hostname и временем** — в ответах API есть `hostname` и `server_time`
-4. **Работающий кэш** — первый запрос возвращает `"source": "api"`, повторный — `"source": "cache"`
-5. **`docker compose ps`** — все три сервиса healthy
-
-### Примеры запросов для скриншотов
+Удалить созданные Kubernetes-ресурсы:
 
 ```bash
-# 1. Главная (hostname + server_time)
-curl http://localhost:8000/
-
-# 2. Первый запрос погоды (source: api)
-curl http://localhost:8000/weather/London
-
-# 3. Повторный запрос (source: cache)
-curl http://localhost:8000/weather/London
-
-# 4. Статистика кэша
-curl http://localhost:8000/cache/stats
-
-# 5. Health check (redis: true)
-curl http://localhost:8000/health
+kubectl delete -f k8s/
 ```
 
----
+Удаление PersistentVolumeClaim может привести к потере данных PostgreSQL — перед очисткой сохраните нужные данные.
 
-## API погоды — важно для пользователей из РФ
+## Что проверить перед демонстрацией
 
-Эндпоинт `/weather/{city}` обращается к **[Open-Meteo](https://open-meteo.com/)** (бесплатный, без ключа).
+- [ ] Все Pod находятся в состоянии `Running`, приложение имеет статус `Ready`.
+- [ ] `kubectl get pvc` показывает, что хранилище PostgreSQL привязано (`Bound`).
+- [ ] `GET /health` подтверждает доступность PostgreSQL и Redis.
+- [ ] Первый запрос погоды возвращает `"source": "api"`, повторный — `"source": "cache"`.
+- [ ] В ответах API поле `hostname` содержит имя Pod Kubernetes.
+- [ ] `APP_OWNER` содержит персональное имя владельца из ConfigMap.
+- [ ] В `kubectl describe pod` видны `readinessProbe` и `livenessProbe`, состояние Pod — `Ready: True`.
+- [ ] Настоящий `k8s/app-secret.yaml` не попал в Git.
 
-Домены `open-meteo.com` могут быть недоступны из российских сетей. Если `/weather/{city}` возвращает таймаут — используйте VPN.
-
-Если VPN включен, но запросы не доходят, перезагрузите docker и пересоберите контейнеры (пересборка и перезагрузка может потребоваться несколько раз).
-
-```bash
-sudo systemctl restart docker
-docker compose down && docker compose up -d --build
-```
+Отчёт и исходники оформляются в соответствии с требованиями учебного задания. В репозитории храните шаблон `app-secret.example.yaml`, но не реальные пароли и ключи.
