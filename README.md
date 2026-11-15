@@ -1,4 +1,6 @@
-# Personal Assistant — учебный проект для практики Docker
+# 🎓 Personal Assistant — учебный проект для практики Docker
+
+> [Ход работы](./lab4/README.MD) | [список всех лаб](https://github.com/OneTwoZzzPlus/container-assist-py)
 
 Простое FastAPI-приложение, которое используется как основа для лабораторных работ по Docker.
 
