@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: sakulin-redis
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: sakulin-redis
+
+  template:
+    metadata:
+      labels:
+        app: sakulin-redis
+
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--port"
+            - "6405"
+          ports:
+            - containerPort: 6405

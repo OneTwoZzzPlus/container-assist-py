@@ -33,30 +33,7 @@
 └── README.md
 ```
 
-Файл `k8s/app-secret.yaml` создаётся локально на основе `k8s/app-secret.example.yaml` и не добавляется в Git. В `.gitignore` должна быть строка:
-
-```gitignore
-k8s/app-secret.yaml
-```
-
-Все команды ниже выполняются из каталога проекта — того, в котором находятся `Dockerfile` и папка `k8s/`.
-
 ## Kubernetes
-
-### Архитектура
-
-Kubernetes заменяет Docker Compose и управляет запуском контейнеров через Deployments. Внутренние Service предоставляют постоянные адреса для связи приложения с PostgreSQL и Redis. Данные PostgreSQL сохраняются в PersistentVolume, запрошенном через PersistentVolumeClaim.
-
-```mermaid
-graph TD
-    Client[Хост] -->|NodePort / minikube service| AppSvc[Service app]
-    AppSvc --> AppPod[Deployment app / FastAPI]
-    AppPod -->|postgres:5432| PgSvc[Service postgres]
-    PgSvc --> PgPod[Deployment postgres]
-    PgPod --> PgPVC[(PersistentVolumeClaim)]
-    AppPod -->|redis:6379| RedisSvc[Service redis]
-    RedisSvc --> RedisPod[Deployment redis]
-```
 
 ### Предварительные требования
 
@@ -64,9 +41,9 @@ graph TD
 
 - Docker;
 - `kubectl`;
-- Minikube (можно использовать kind вместо Minikube).
+- Minikube.
 
-Для локального кластера рекомендуется выделить не менее 2 CPU и 4 ГБ памяти.
+> Для локального кластера рекомендуется выделить не менее 2 CPU и 4 ГБ памяти.
 
 ### 1. Запустить кластер
 
@@ -85,16 +62,17 @@ kubectl get nodes
 Соберите образ из `Dockerfile`:
 
 ```bash
-docker build -t personal-assistant:lab5 .
+docker build -t sakulin-assistant:final .
 ```
 
 Для локального Minikube загрузите собранный образ в кластер:
 
 ```bash
-minikube image load personal-assistant:lab5
+minikube image load sakulin-assistant:final
+minikube image ls | grep sakulin-assistant
 ```
 
-В `k8s/app-deployment.yaml` укажите этот образ в поле `spec.template.spec.containers[].image` и задайте `imagePullPolicy: IfNotPresent`. Если образ размещён в Docker Hub, укажите вместо этого его полный адрес и тег; для приватного репозитория дополнительно настройте доступ к нему.
+> В `k8s/app-deployment.yaml` этот образ указан в поле `spec.template.spec.containers[].image`.
 
 ### 3. Подготовить Secret
 
@@ -104,39 +82,9 @@ minikube image load personal-assistant:lab5
 cp k8s/app-secret.example.yaml k8s/app-secret.yaml
 ```
 
-Откройте `k8s/app-secret.yaml` и укажите собственные значения как минимум для `APP_SECRET` и `POSTGRES_PASSWORD`. Не используйте реальные пароли в шаблоне `app-secret.example.yaml` и не коммитьте `app-secret.yaml`.
-
-Несекретные параметры приложения задаются в `k8s/app-configmap.yaml`. Проверьте, что `APP_OWNER` содержит ваш персональный префикс, а адреса сервисов указаны по именам Kubernetes Service:
-
-- PostgreSQL: хост `postgres`, порт `5432`;
-- Redis: `redis://redis:6379/0`.
-
-Имя базы данных, пользователь и пароль PostgreSQL в конфигурации приложения должны совпадать со значениями, заданными для Deployment PostgreSQL и в Secret. Если в манифестах используются другие имена ресурсов, синхронно измените адреса подключения и команды ниже.
+Откройте `k8s/app-secret.yaml` и укажите собственные значения как минимум для `APP_SECRET` и `POSTGRES_PASSWORD`.
 
 ### 4. Применить манифесты
-
-Применяйте ресурсы в следующем порядке: сначала хранилище и сервисы зависимостей, затем PostgreSQL и Redis, после этого конфигурацию и Secret приложения, и в конце само приложение.
-
-```bash
-# PostgreSQL: хранилище, Service и Deployment
-kubectl apply -f k8s/postgres-pvc.yaml
-kubectl apply -f k8s/postgres-service.yaml
-kubectl apply -f k8s/postgres-deployment.yaml
-
-# Redis: Service и Deployment
-kubectl apply -f k8s/redis-service.yaml
-kubectl apply -f k8s/redis-deployment.yaml
-
-# Конфигурация приложения
-kubectl apply -f k8s/app-configmap.yaml
-kubectl apply -f k8s/app-secret.yaml
-
-# FastAPI: Service и Deployment
-kubectl apply -f k8s/app-service.yaml
-kubectl apply -f k8s/app-deployment.yaml
-```
-
-При необходимости все ресурсы можно применить одной командой после создания `k8s/app-secret.yaml`:
 
 ```bash
 kubectl apply -f k8s/
@@ -162,19 +110,17 @@ kubectl get pods -w
 Проверить состояние Deployment можно так:
 
 ```bash
-kubectl rollout status deployment/postgres
-kubectl rollout status deployment/redis
-kubectl rollout status deployment/app
+kubectl rollout status deployment/sakulin-postgres
+kubectl rollout status deployment/sakulin-redis
+kubectl rollout status deployment/sakulin-app
 ```
-
-В примерах предполагаются имена ресурсов `postgres`, `redis` и `app` в поле `metadata.name`. Если в манифестах выбраны другие имена, подставьте их в команды.
 
 ### 6. Открыть приложение и проверить API
 
 Для Service типа `NodePort` откройте приложение через Minikube:
 
 ```bash
-minikube service app
+minikube service sakulin-app
 ```
 
 Команда выведет адрес приложения. Используйте его вместо `<APP_URL>` в запросах:
@@ -182,14 +128,11 @@ minikube service app
 ```bash
 curl <APP_URL>/
 curl <APP_URL>/health
+
 curl <APP_URL>/weather/Moscow
 curl <APP_URL>/weather/Moscow
 curl <APP_URL>/cache/stats
-```
 
-Также проверьте работу заметок:
-
-```bash
 curl -X POST <APP_URL>/notes \
   -H "Content-Type: application/json" \
   -d '{"text":"Моя первая заметка"}'
@@ -211,17 +154,17 @@ curl <APP_URL>/notes
 
 ```yaml
 readinessProbe:
-    httpGet:
-        path: /health
-        port: 8000
-    initialDelaySeconds: 5
-    periodSeconds: 10
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 10
 livenessProbe:
-    httpGet:
-        path: /health
-        port: 8000
-    initialDelaySeconds: 15
-    periodSeconds: 20
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 15
+  periodSeconds: 20
 ```
 
 `readinessProbe` определяет, готов ли Pod принимать трафик: пока проверка не проходит, Kubernetes не направляет на него запросы через Service. `livenessProbe` проверяет, что контейнер продолжает работать; при провале проверки Kubernetes перезапускает контейнер.
@@ -229,28 +172,38 @@ livenessProbe:
 Проверьте настройки и состояние Pod:
 
 ```bash
-kubectl describe pod <имя-пода-приложения>
+kubectl describe pod sakulin-app
 kubectl get pods
 ```
 
 В выводе `describe` должны присутствовать `Readiness` и `Liveness`, а у работающего Pod в Conditions должно быть `Ready: True`.
 
-### 8. Ingress (необязательно)
+### 8. Ingress
 
 Ingress — дополнительная настройка. Для Minikube включите аддон:
 
 ```bash
 minikube addons enable ingress
-```
-
-Создайте `k8s/app-ingress.yaml` с хостом `<фамилия>.local`, направляющим запросы на Service приложения, и примените его:
-
-```bash
 kubectl apply -f k8s/app-ingress.yaml
 kubectl get ingress
 ```
 
-Для обращения по локальному имени настройте разрешение `<фамилия>.local` на IP Minikube в файле hosts вашей операционной системы.
+Для обращения по локальному имени настройте разрешение `sakulin.local` на IP Minikube в файле hosts вашей операционной системы.
+
+## Архитектура
+
+Kubernetes заменяет Docker Compose и управляет запуском контейнеров через Deployments. Внутренние Service предоставляют постоянные адреса для связи приложения с PostgreSQL и Redis. Данные PostgreSQL сохраняются в PersistentVolume, запрошенном через PersistentVolumeClaim.
+
+```mermaid
+graph TD
+    Client[Хост] -->|NodePort / minikube service| AppSvc[Service app]
+    AppSvc --> AppPod[Deployment app / FastAPI]
+    AppPod -->|postgres:5432| PgSvc[Service postgres]
+    PgSvc --> PgPod[Deployment postgres]
+    PgPod --> PgPVC[(PersistentVolumeClaim)]
+    AppPod -->|redis:6379| RedisSvc[Service redis]
+    RedisSvc --> RedisPod[Deployment redis]
+```
 
 ## Эндпоинты API
 

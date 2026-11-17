@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sakulin-app-config
+
+data:
+  APP_OWNER: "sakulin"
+  APP_PORT: "8035"
+
+  POSTGRES_USER: "user_35"
+  POSTGRES_DB: "assistant_35"
+  POSTGRES_HOST: "sakulin-postgres"
+  POSTGRES_PORT: "5465"
+
+  REDIS_URL: "redis://sakulin-redis:6405/0"
+  REDIS_PORT: "6405"
+  CACHE_TTL: "120"
