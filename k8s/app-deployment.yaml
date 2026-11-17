@@ -18,6 +18,18 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8035
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8035
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8035
+            initialDelaySeconds: 15
+            periodSeconds: 20
           env:
             - name: APP_OWNER
               valueFrom:

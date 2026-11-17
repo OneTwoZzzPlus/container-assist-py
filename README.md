@@ -139,25 +139,6 @@ curl <APP_URL>/notes ;echo
 
 ### 7. Проверить readiness и liveness probes
 
-В `k8s/app-deployment.yaml` для контейнера приложения должны быть настроены обе HTTP-пробы на эндпоинт `/health` и порт приложения (в этом проекте — `8000`). Например:
-
-```yaml
-readinessProbe:
-  httpGet:
-    path: /health
-    port: 8000
-  initialDelaySeconds: 5
-  periodSeconds: 10
-livenessProbe:
-  httpGet:
-    path: /health
-    port: 8000
-  initialDelaySeconds: 15
-  periodSeconds: 20
-```
-
-`readinessProbe` определяет, готов ли Pod принимать трафик: пока проверка не проходит, Kubernetes не направляет на него запросы через Service. `livenessProbe` проверяет, что контейнер продолжает работать; при провале проверки Kubernetes перезапускает контейнер.
-
 Проверьте настройки и состояние Pod:
 
 ```bash
