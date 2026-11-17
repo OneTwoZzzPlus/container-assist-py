@@ -1,0 +1,16 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sakulin-ingress
+spec:
+  rules:
+    - host: sakulin.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sakulin-app-service
+                port:
+                  number: 8035

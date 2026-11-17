@@ -160,6 +160,52 @@ kubectl get ingress
 
 Для обращения по локальному имени настройте разрешение `sakulin.local` на IP Minikube в файле hosts вашей операционной системы.
 
+```bash
+sudo sed -i '/sakulin.local/d' /etc/hosts && echo "$(minikube ip) sakulin.local" | sudo tee -a /etc/hosts > /dev/null
+```
+
+## Полезные команды Kubernetes
+
+```bash
+# Список ресурсов и Pod
+kubectl get all
+kubectl get pods -o wide
+kubectl get svc
+kubectl get pvc
+
+# Подробная информация о Pod
+kubectl describe pod <pod-name>
+
+# Логи приложения и зависимостей
+kubectl logs deployment/app
+kubectl logs deployment/postgres
+kubectl logs deployment/redis
+
+# Следить за логами приложения
+kubectl logs -f deployment/app
+
+# Посмотреть события кластера
+kubectl get events --sort-by=.metadata.creationTimestamp
+
+# Перезапустить Deployment приложения после изменения конфигурации
+kubectl rollout restart deployment/app
+kubectl rollout status deployment/app
+```
+
+## Остановка и удаление ресурсов
+
+Остановить локальный кластер, сохранив его состояние:
+
+```bash
+minikube stop
+```
+
+Удалить созданные Kubernetes-ресурсы:
+
+```bash
+kubectl delete -f k8s/
+```
+
 ## Архитектура
 
 Kubernetes заменяет Docker Compose и управляет запуском контейнеров через Deployments. Внутренние Service предоставляют постоянные адреса для связи приложения с PostgreSQL и Redis. Данные PostgreSQL сохраняются в PersistentVolume, запрошенном через PersistentVolumeClaim.
@@ -205,50 +251,6 @@ graph TD
 | `REDIS_URL`         | Адрес Redis внутри кластера; например, `redis://redis:6379/0` | ConfigMap                                               |
 | `CACHE_TTL`         | Время жизни кэша в секундах                                   | ConfigMap                                               |
 
-## Полезные команды Kubernetes
-
-```bash
-# Список ресурсов и Pod
-kubectl get all
-kubectl get pods -o wide
-kubectl get svc
-kubectl get pvc
-
-# Подробная информация о Pod
-kubectl describe pod <pod-name>
-
-# Логи приложения и зависимостей
-kubectl logs deployment/app
-kubectl logs deployment/postgres
-kubectl logs deployment/redis
-
-# Следить за логами приложения
-kubectl logs -f deployment/app
-
-# Посмотреть события кластера
-kubectl get events --sort-by=.metadata.creationTimestamp
-
-# Перезапустить Deployment приложения после изменения конфигурации
-kubectl rollout restart deployment/app
-kubectl rollout status deployment/app
-```
-
-## Остановка и удаление ресурсов
-
-Остановить локальный кластер, сохранив его состояние:
-
-```bash
-minikube stop
-```
-
-Удалить созданные Kubernetes-ресурсы:
-
-```bash
-kubectl delete -f k8s/
-```
-
-Удаление PersistentVolumeClaim может привести к потере данных PostgreSQL — перед очисткой сохраните нужные данные.
-
 ## Что проверить перед демонстрацией
 
 - [ ] Все Pod находятся в состоянии `Running`, приложение имеет статус `Ready`.
@@ -259,5 +261,3 @@ kubectl delete -f k8s/
 - [ ] `APP_OWNER` содержит персональное имя владельца из ConfigMap.
 - [ ] В `kubectl describe pod` видны `readinessProbe` и `livenessProbe`, состояние Pod — `Ready: True`.
 - [ ] Настоящий `k8s/app-secret.yaml` не попал в Git.
-
-Отчёт и исходники оформляются в соответствии с требованиями учебного задания. В репозитории храните шаблон `app-secret.example.yaml`, но не реальные пароли и ключи.
