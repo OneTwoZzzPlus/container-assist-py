@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sakulin-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sakulin-app
+  template:
+    metadata:
+      labels:
+        app: sakulin-app
+    spec:
+      containers:
+        - name: app
+          image: sakulin-assistant:final
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8035
+          env:
+            - name: APP_OWNER
+              valueFrom:
+                configMapKeyRef:
+                  name: sakulin-app-config
+                  key: APP_OWNER
+            - name: APP_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: sakulin-app-config
+                  key: APP_PORT
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: sakulin-app-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: sakulin-app-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: sakulin-app-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: sakulin-app-config
+                  key: POSTGRES_PORT
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sakulin-app-config
+                  key: REDIS_URL
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: sakulin-app-config
+                  key: REDIS_PORT
+            - name: CACHE_TTL
+              valueFrom:
+                configMapKeyRef:
+                  name: sakulin-app-config
+                  key: CACHE_TTL
+            - name: APP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sakulin-app-secret
+                  key: APP_SECRET
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sakulin-app-secret
+                  key: POSTGRES_PASSWORD

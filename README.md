@@ -96,23 +96,12 @@ kubectl apply -f k8s/
 
 ```bash
 kubectl get all
-kubectl get pvc
-kubectl get configmap
-kubectl get secrets
 ```
 
-Дождитесь, пока Pod приложения, PostgreSQL и Redis перейдут в состояние `Running`, а PVC — в `Bound`:
+Проверить логи приложения:
 
 ```bash
-kubectl get pods -w
-```
-
-Проверить состояние Deployment можно так:
-
-```bash
-kubectl rollout status deployment/sakulin-postgres
-kubectl rollout status deployment/sakulin-redis
-kubectl rollout status deployment/sakulin-app
+kubectl logs pod/sakulin-app-<...>
 ```
 
 ### 6. Открыть приложение и проверить API
@@ -120,24 +109,24 @@ kubectl rollout status deployment/sakulin-app
 Для Service типа `NodePort` откройте приложение через Minikube:
 
 ```bash
-minikube service sakulin-app
+minikube service sakulin-app-service
 ```
 
 Команда выведет адрес приложения. Используйте его вместо `<APP_URL>` в запросах:
 
 ```bash
-curl <APP_URL>/
-curl <APP_URL>/health
+curl <APP_URL>/ ;echo
+curl <APP_URL>/health ;echo
 
-curl <APP_URL>/weather/Moscow
-curl <APP_URL>/weather/Moscow
-curl <APP_URL>/cache/stats
+curl <APP_URL>/weather/Moscow ;echo
+curl <APP_URL>/weather/Moscow ;echo
+curl <APP_URL>/cache/stats ;echo
 
 curl -X POST <APP_URL>/notes \
   -H "Content-Type: application/json" \
-  -d '{"text":"Моя первая заметка"}'
+  -d '{"text":"Моя первая заметка"}' ;echo
 
-curl <APP_URL>/notes
+curl <APP_URL>/notes ;echo
 ```
 
 Ожидаемые результаты:
