@@ -21,7 +21,7 @@ spec:
               app: sakulin-app
       containers:
         - name: app
-          image: ghcr.io/onetwozzzplus/container-assist-py:sha-ffc7350
+          image: ghcr.io/onetwozzzplus/container-assist-py:sha-56bb55c
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8035
