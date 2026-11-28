@@ -9,4 +9,5 @@ spec:
   ports:
     - port: 8035
       targetPort: 8035
+      nodePort: 30035
       protocol: TCP

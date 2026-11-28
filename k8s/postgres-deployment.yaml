@@ -16,6 +16,9 @@ spec:
         app: sakulin-postgres
 
     spec:
+      nodeSelector:
+        role: db
+
       containers:
         - name: postgres
           image: postgres:15

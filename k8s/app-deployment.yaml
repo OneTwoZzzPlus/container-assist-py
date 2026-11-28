@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: sakulin-app
 spec:
-  replicas: 1
+  replicas: 4
   selector:
     matchLabels:
       app: sakulin-app
@@ -12,9 +12,16 @@ spec:
       labels:
         app: sakulin-app
     spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: sakulin-app
       containers:
         - name: app
-          image: sakulin-assistant:final
+          image: ghcr.io/onetwozzzplus/container-assist-py:sha-ffc7350
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8035
