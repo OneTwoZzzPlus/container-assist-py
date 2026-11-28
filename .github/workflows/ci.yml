@@ -2,7 +2,7 @@ name: ci
 
 on:
     push:
-        branches: [main, lab-6]
+        branches: [main, lab6]
     workflow_dispatch:
 
 permissions:
